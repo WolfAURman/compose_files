@@ -1,0 +1,84 @@
+version: "3.8"
+
+services:
+
+  traefik:
+    #privileged: true
+    image: "traefik:latest"
+    #command: --providers.docker
+    container_name: "traefik"
+    command:
+      #- "--log.level=DEBUG"
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge=true"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web"
+      #- "--certificatesresolvers.myresolver.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory"
+      - "--certificatesresolvers.myresolver.acme.email=changeme@gmail.com"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    networks:
+      - test
+    volumes:
+      - "/home/ikrell/traefik/letsencrypt:/letsencrypt:rw"
+      - "/run/user/1000/podman/podman.sock:/var/run/docker.sock:ro"
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+
+  nextcloud:
+    image: "nextcloud:latest"
+    container_name: "nextcloud"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nextcloud.rule=Host(`changeme.duckdns.org`)"
+      - "traefik.http.routers.nextcloud.entrypoints=websecure"
+      - "traefik.http.routers.nextcloud.tls.certresolver=myresolver"
+      - "traefik.http.middlewares.nextcloud_redirectregex.redirectregex.permanent=true"
+      - "traefik.http.middlewares.nextcloud_redirectregex.redirectregex.regex=https://(.*)/.well-known/(card|cal)dav"
+      - "traefik.http.middlewares.nextcloud_redirectregex.redirectregex.replacement=https://$${1}/remote.php/dav/"
+      - "traefik.http.middlewares.nextcloudsts.headers.referrerPolicy=no-referrer"
+      - "traefik.http.middlewares.nextcloudsts.headers.stsSeconds=15552000"
+      - "traefik.http.middlewares.nextcloudsts.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.nextcloudsts.headers.stsPreload=true"
+      - "traefik.http.middlewares.nextcloudsts.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.nextcloudsts.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.nextcloudsts.headers.customRequestHeaders.X-Forwarded-Proto=https"
+      - "traefik.http.routers.nextcloud.middlewares=nextcloud_redirectregex,nextcloudsts"
+    networks:
+      - test
+    volumes:
+      - "/home/ikrell/nextcloud/data:/var/www/html/data:rw"
+      - "/home/ikrell/nextcloud/config:/var/www/html/config:rw"
+    environment:
+      - REDIS_HOST=redis
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+  redis:
+    image: "redis:7.0.12-alpine"
+    container_name: "redis"
+    command: redis-server --save 900 1 --save 300 10 --save 60 10000 --loglevel warning
+    networks:
+      - test
+    volumes:
+      - "/home/ikrell/redis:/data:rw"
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+networks:
+  test:
